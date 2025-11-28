@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-邮箱管理器
-"""
-
 import re
 import time
 import random
