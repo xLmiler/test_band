@@ -1103,7 +1103,7 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label>邮箱用户名 (可选，留空自动生成)</label>
-                    <input type="text" id="newUsername" placeholder="留空自动生成随机用户名字">
+                    <input type="text" id="newUsername" placeholder="留空自动生成随机用户��">
                 </div>
             </div>
             <div class="modal-footer">
@@ -1186,9 +1186,9 @@
 
                 if (data.success) {
                     authToken = data.token;
-                    localStorage.setItem('auth_token', data.token);
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('auth-password', password);
                     showApp();
-                    loadData();
                     showToast('登录成功', 'success');
                 } else {
                     showToast(data.message || '登录失败', 'error');
@@ -1223,21 +1223,13 @@
                 ...options.headers
             };
 
-            // 使用登录获取的 Token
-            const token = localStorage.getItem('auth_token');
+            // Auth
+            const token = localStorage.getItem('auth-password');
             if (token) {
                 headers['Authorization'] = `Bearer ${token}`;
             }
 
             const response = await fetch(url, { ...options, headers });
-
-            // 处理 401 未认证
-            if (response.status === 401) {
-                localStorage.removeItem('auth_token');
-                showLogin();
-                return null;
-            }
-
             return response;
         }
 
