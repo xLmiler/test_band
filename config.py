@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+配置管理
+"""
+
 import os
 import sys
 import glob
@@ -386,30 +392,6 @@ class BrowserPathFinder:
             'version': None,
             'platform': cls.get_platform()
         }
-        
-        if path:
-            try:
-                # 获取版本信息
-                if cls.get_platform() == 'windows':
-                    result = subprocess.run(
-                        [path, '--version'],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-                    )
-                else:
-                    result = subprocess.run(
-                        [path, '--version'],
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                
-                if result.returncode == 0:
-                    info['version'] = result.stdout.strip()
-            except Exception:
-                pass
         
         return info
     
