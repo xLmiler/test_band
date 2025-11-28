@@ -19,8 +19,6 @@ from config import Config
 # 加载环境变量
 load_dotenv()
 
-load_dotenv()
-
 if getattr(sys, 'frozen', False):
     template_folder = os.path.join(os.getcwd(), 'templates')
     static_folder = os.path.join(os.getcwd(), 'static')
