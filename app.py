@@ -19,6 +19,8 @@ from config import Config
 # 加载环境变量
 load_dotenv()
 
+load_dotenv()
+
 if getattr(sys, 'frozen', False):
     template_folder = os.path.join(os.getcwd(), 'templates')
     static_folder = os.path.join(os.getcwd(), 'static')
@@ -64,7 +66,10 @@ def requires_auth(f):
                 request.headers.get("Authorization", "").replace("Bearer ", "") or
                 request.headers.get("X-API-Key")
             )
-            if api_key != os.getenv('ADMIN_TOKEN', ''):
+            adminpassword = os.getenv('ADMIN_PASSWORD', '')
+            print(f"api_key: {api_key}, adminpassword: {adminpassword}")
+
+            if api_key != os.getenv('ADMIN_TOKEN', '') and api_key != os.getenv('ADMIN_PASSWORD', ''):
                 return authenticate()
         return f(*args, **kwargs)
     return decorated
