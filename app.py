@@ -1,11 +1,5 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Gemini Business 账号管理系统 - Flask Web 版本
-支持通过邮箱域名自动匹配配置进行刷新/注册
-"""
-
 import os
+import sys
 import json
 import threading
 import queue
@@ -25,7 +19,12 @@ from config import Config
 # 加载环境变量
 load_dotenv()
 
-app = Flask(__name__)
+if getattr(sys, 'frozen', False):
+    template_folder = os.path.join(os.getcwd(), 'templates')
+    static_folder = os.path.join(os.getcwd(), 'static')
+    app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
+else:
+    app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
 
 # 全局配置和状态
