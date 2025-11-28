@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-浏览器工作线程 - 修复版 (添加时间戳)
-"""
-
 import re
 import time
 import random
@@ -126,7 +120,12 @@ class BrowserWorker(threading.Thread):
             self.close_browser()
             
             options = ChromiumOptions().auto_port()
-            
+            # 设置浏览器路径
+            browser_path = self.config.get_browser_path()
+            if browser_path:
+                options.set_browser_path(browser_path)
+                print(f"[{self.worker_id}] 使用浏览器: {browser_path}")
+
             ua = self.config.get_user_agent()
             options.set_user_agent(ua)
             
