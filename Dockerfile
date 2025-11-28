@@ -52,8 +52,6 @@ RUN chmod +x app_binary
 ENV PORT=7860
 EXPOSE 7860
 
-# 设置环境变量，确保 DrissionPage 能找到浏览器
-ENV CHROME_PATH=/usr/bin/chromium
-
 # 运行二进制文件
 CMD ["./app_binary"]
+
