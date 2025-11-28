@@ -481,15 +481,15 @@ class BrowserWorker(threading.Thread):
             
             self.update_status(AccountStatus.ENTERING_CODE)
             
-            code_selectors = [
+            code_input_selectors = [
                 'xpath://input[@name="pinInput"]',
                 'xpath://input[contains(@aria-label, "验证码")]',
                 'input[name="pinInput"]',
             ]
-            
+            print(f"[{self.worker_id}] 正在输入验证码: {self.account.email}")
             input_success = False
-            for selector in code_selectors:
-                if self.safe_input(selector, verification_code):
+            for selector in code_input_selectors:
+                if self.wait_and_input(selector, verification_code, timeout=10, description="验证码输入框"):
                     input_success = True
                     break
             
@@ -559,7 +559,7 @@ class BrowserWorker(threading.Thread):
                 current_url = self.page.url
                 if '/admin/create' in current_url:
                     time.sleep(15)
-                    if not self.wait_for_url_pattern(target_pattern, timeout=60):
+                    if not self.wait_for_url_pattern(target_pattern, timeout=120):
                         raise Exception("页面跳转超时")
                 else:
                     raise Exception("页面跳转超时")
@@ -681,7 +681,7 @@ class BrowserWorker(threading.Thread):
             print(f"[{self.worker_id}] 正在等待跳转: {self.account.email}")
             
             target_pattern = r'business\.gemini\.google/home/cid/[a-f0-9-]+\?csesidx=\d+'
-            if not self.wait_for_url_pattern(target_pattern, timeout=90):
+            if not self.wait_for_url_pattern(target_pattern, timeout=120):
                 raise Exception("页面跳转超时")
             
             time.sleep(3)
