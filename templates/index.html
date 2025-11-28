@@ -1186,8 +1186,9 @@
 
                 if (data.success) {
                     authToken = data.token;
-                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('auth_token', data.token);
                     showApp();
+                    loadData();
                     showToast('登录成功', 'success');
                 } else {
                     showToast(data.message || '登录失败', 'error');
@@ -1222,11 +1223,21 @@
                 ...options.headers
             };
 
-            // Basic Auth
-            const credentials = btoa('admin:admin123');
-            headers['Authorization'] = `Basic ${credentials}`;
+            // 使用登录获取的 Token
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
 
             const response = await fetch(url, { ...options, headers });
+
+            // 处理 401 未认证
+            if (response.status === 401) {
+                localStorage.removeItem('auth_token');
+                showLogin();
+                return null;
+            }
+
             return response;
         }
 
