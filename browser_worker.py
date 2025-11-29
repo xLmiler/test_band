@@ -7,11 +7,13 @@ from typing import Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
+import logging
 
 from DrissionPage import Chromium, ChromiumOptions
 
 from email_manager import EmailManager
 
+logger = logging.getLogger(__name__)
 
 class AccountStatus(Enum):
     PENDING = "pending"
@@ -124,13 +126,14 @@ class BrowserWorker(threading.Thread):
             browser_path = self.config.get_browser_path()
             if browser_path:
                 options.set_browser_path(browser_path)
-                print(f"[{self.worker_id}] 使用浏览器: {browser_path}")
+                logger.info(f"[{self.worker_id}] 使用浏览器: {browser_path}")
 
             ua = self.config.get_user_agent()
             options.set_user_agent(ua)
             
             if self.config.get_headless():
                 options.set_argument('--headless=new')
+            options.set_argument('--incognito')
             
             options.set_argument('--disable-blink-features=AutomationControlled')
             options.set_argument('--no-sandbox')
@@ -164,7 +167,7 @@ class BrowserWorker(threading.Thread):
             return True
             
         except Exception as e:
-            print(f"创建浏览器失败: {e}")
+            logger.error(f"创建浏览器失败: {e}")
             return False
     
     def _inject_fingerprint_script(self):
@@ -191,6 +194,16 @@ class BrowserWorker(threading.Thread):
                 self.browser = None
                 self.page = None
     
+    def get_screenshot(self) -> Optional[str]:
+        """获取当前页面截图 (Base64)"""
+        if self.page:
+            try:
+                return self.page.get_screenshot(as_base64=True, full_page=False)
+            except Exception as e:
+                logger.error(f"截图失败: {e}")
+                return None
+        return None
+    
     def safe_input(self, selector: str, text: str, max_retries: int = 3) -> bool:
         """安全输入文本"""
         for attempt in range(max_retries):
@@ -213,7 +226,7 @@ class BrowserWorker(threading.Thread):
                     time.sleep(0.5)
                     
             except Exception as e:
-                print(f"输入失败: {e}")
+                logger.error(f"输入失败: {e}")
                 time.sleep(1)
         
         return False
@@ -225,13 +238,13 @@ class BrowserWorker(threading.Thread):
             if ele:
                 ele.clear()
                 ele.input(text)
-                print(f"输入成功: {description}")
+                logger.info(f"输入成功: {description}")
                 return True
             else:
-                print(f"未找到输入框: {description}", "WARNING")
+                logger.warning(f"未找到输入框: {description}")
                 return False
         except Exception as e:
-            print(f"输入失败 {description}: {e}", "ERROR")
+            logger.error(f"输入失败 {description}: {e}")
             return False
 
     def wait_and_click(self, selector: str, timeout: float = 10) -> bool:
@@ -243,7 +256,7 @@ class BrowserWorker(threading.Thread):
                 return True
             return False
         except Exception as e:
-            print(f"点击失败: {e}")
+            logger.error(f"点击失败: {e}")
             return False
     
     def wait_for_url_pattern(self, pattern: str, timeout: float = 60) -> bool:
@@ -302,7 +315,7 @@ class BrowserWorker(threading.Thread):
             return self.account.is_complete()
             
         except Exception as e:
-            print(f"提取数据失败: {e}")
+            logger.error(f"提取数据失败: {e}")
             return False
     
     def handle_welcome_dialog(self) -> bool:
@@ -379,7 +392,7 @@ class BrowserWorker(threading.Thread):
                 if ele:
                     time.sleep(0.5)
                     ele.click()
-                    print(f"成功点击验证按钮: {selector}")
+                    logger.info(f"成功点击验证按钮: {selector}")
                     return True
             except:
                 continue
@@ -399,18 +412,72 @@ class BrowserWorker(threading.Thread):
             '''
             result = self.page.run_js(js_code)
             if result:
-                print("通过 JavaScript 成功点击验证按钮")
+                logger.info("通过 JavaScript 成功点击验证按钮")
                 return True
         except:
             pass
         
         return False
     
+    def click_resend_button(self) -> bool:
+        """点击重新发送按钮"""
+        resend_selectors = [
+            'button[aria-label="Resend Code"]',
+            'button[aria-label="重新发送"]',
+            'xpath://button[contains(., "Resend")]',
+            'xpath://button[contains(., "重新发送验证码")]',
+        ]
+        
+        for sel in resend_selectors:
+            if self.wait_and_click(sel, timeout=5):
+                logger.info(f"[{self.worker_id}] 已点击重新发送按钮")
+                return True
+        
+        return False
+
+    def get_verification_code_with_retry(self, email_manager) -> Optional[str]:
+        """带重试机制的获取验证码"""
+        max_loops = 1
+        
+        for i in range(max_loops):
+            logger.info(f"[{self.worker_id}] 第 {i+1} 次尝试获取验证码流程")
+            
+            # 1. 第一次检测 (15次)
+            logger.info(f"[{self.worker_id}] 正在检测邮件 (10次尝试)...")
+            code = email_manager.check_verification_code(self.account.email, max_retries=10)
+            if code:
+                return code
+            
+            # 2. 如果没收到，检测是否有重发按钮
+            logger.info(f"[{self.worker_id}] 未收到邮件，检查重发按钮...")
+            if self.click_resend_button():
+                logger.info(f"[{self.worker_id}] 点击了重发按钮，等待邮件发送...")
+                time.sleep(10) # 等待邮件发送
+                continue # 重新开始循环，会再次检测邮件
+            
+            # 3. 如果没有重发按钮，继续等待15次
+            logger.info(f"[{self.worker_id}] 未找到重发按钮，继续等待邮件 (10次尝试)...")
+            code = email_manager.check_verification_code(self.account.email, max_retries=10)
+            if code:
+                return code
+                
+            # 4. 再次检测重发按钮
+            logger.info(f"[{self.worker_id}] 仍未收到邮件，再次检查重发按钮...")
+            if self.click_resend_button():
+                logger.info(f"[{self.worker_id}] 点击了重发按钮，等待邮件发送...")
+                time.sleep(10)
+                continue
+            else:
+                logger.warning(f"[{self.worker_id}] 无法找到重发按钮且未收到邮件，本轮失败")
+                return None
+                
+        return None
+
     def register_account(self) -> bool:
         """注册账号"""
         try:
             self.update_status(AccountStatus.OPENING_PAGE)
-            print(f"[{self.worker_id}] 正在打开页面...")
+            logger.info(f"[{self.worker_id}] 正在打开页面...")
             
             self.page.get('https://business.gemini.google')
             
@@ -432,7 +499,7 @@ class BrowserWorker(threading.Thread):
             time.sleep(1)
             
             self.update_status(AccountStatus.ENTERING_EMAIL)
-            print(f"[{self.worker_id}] 正在输入邮箱: {self.account.email}")
+            logger.info(f"[{self.worker_id}] 正在输入邮箱: {self.account.email}")
             
             input_success = False
             for selector in email_input_selectors:
@@ -463,7 +530,7 @@ class BrowserWorker(threading.Thread):
             time.sleep(2)
             
             self.update_status(AccountStatus.WAITING_CODE)
-            print(f"[{self.worker_id}] 正在等待验证码...")
+            logger.info(f"[{self.worker_id}] 正在等待验证码...")
             
             email_manager = EmailManager(
                 self.account.email_config.get('worker_domain', ''),
@@ -471,13 +538,13 @@ class BrowserWorker(threading.Thread):
                 self.account.email_config.get('admin_password', '')
             )
             
-            verification_code = email_manager.check_verification_code(self.account.email)
+            verification_code = self.get_verification_code_with_retry(email_manager)
             
             if not verification_code:
-                raise Exception("未收到验证码")
+                raise Exception("未收到验证码 (已重试)")
             
             self.account.verification_code = verification_code
-            print(f"[{self.worker_id}] 获取到验证码: {verification_code}")
+            logger.info(f"[{self.worker_id}] 获取到验证码: {verification_code}")
             
             self.update_status(AccountStatus.ENTERING_CODE)
             
@@ -486,7 +553,7 @@ class BrowserWorker(threading.Thread):
                 'xpath://input[contains(@aria-label, "验证码")]',
                 'input[name="pinInput"]',
             ]
-            print(f"[{self.worker_id}] 正在输入验证码: {self.account.email}")
+            logger.info(f"[{self.worker_id}] 正在输入验证码: {self.account.email}")
             input_success = False
             for selector in code_input_selectors:
                 if self.wait_and_input(selector, verification_code, timeout=10, description="验证码输入框"):
@@ -504,6 +571,48 @@ class BrowserWorker(threading.Thread):
                 raise Exception("无法点击验证按钮")
             
             time.sleep(3)
+
+            # 检查验证码错误并重试
+            if self.page.ele('text:请输入验证码。', timeout=2):
+                logger.warning(f"[{self.worker_id}] 验证码失效，尝试重新发送...")
+                
+                resend_selectors = [
+                    'button[aria-label="重新发送验证码"]',
+                    'xpath://button[contains(., "重新发送验证码")]'
+                ]
+                
+                resend_clicked = False
+                for sel in resend_selectors:
+                    if self.wait_and_click(sel, timeout=5):
+                        resend_clicked = True
+                        break
+                
+                if resend_clicked:
+                    logger.info(f"[{self.worker_id}] 已点击重新发送，等待新验证码...")
+                    time.sleep(10) # 等待邮件发送
+                    
+                    verification_code = email_manager.check_verification_code(self.account.email)
+                    if not verification_code:
+                         raise Exception("重发后未收到验证码")
+                    
+                    self.account.verification_code = verification_code
+                    logger.info(f"[{self.worker_id}] 获取到新验证码: {verification_code}")
+                    
+                    input_success = False
+                    for selector in code_input_selectors:
+                        if self.wait_and_input(selector, verification_code, timeout=10, description="验证码输入框"):
+                            input_success = True
+                            break
+                    
+                    if input_success:
+                        time.sleep(1)
+                        if not self.click_verify_button():
+                            raise Exception("无法点击验证按钮(重试)")
+                        time.sleep(3)
+                    else:
+                        raise Exception("无法重新输入验证码")
+                else:
+                    logger.warning(f"[{self.worker_id}] 未找到重新发送按钮")
             
             self.update_status(AccountStatus.ENTERING_NAME)
             
@@ -577,14 +686,14 @@ class BrowserWorker(threading.Thread):
                 if not self.account.created_at:
                     self.account.created_at = datetime.now().isoformat()
                 self.update_status(AccountStatus.SUCCESS)
-                print(f"[{self.worker_id}] 注册成功!")
+                logger.info(f"[{self.worker_id}] 注册成功!")
                 return True
             else:
                 raise Exception("未能获取完整数据")
             
         except Exception as e:
             error_msg = str(e)
-            print(f"[{self.worker_id}] 注册失败: {error_msg}")
+            logger.error(f"[{self.worker_id}] 注册失败: {error_msg}")
             self.update_status(AccountStatus.FAILED, error_msg)
             return False
     
@@ -592,7 +701,7 @@ class BrowserWorker(threading.Thread):
         """刷新账号Cookie"""
         try:
             self.update_status(AccountStatus.UPDATING)
-            print(f"[{self.worker_id}] 正在刷新账号: {self.account.email}")
+            logger.info(f"[{self.worker_id}] 正在刷新账号: {self.account.email}")
             
             self.page.get('https://business.gemini.google')
             
@@ -601,7 +710,7 @@ class BrowserWorker(threading.Thread):
                 'xpath://input[@name="loginHint"]',
                 '#email-input',
             ]
-            print(f"[{self.worker_id}] 正在等待邮箱输入框: {self.account.email}")
+            logger.info(f"[{self.worker_id}] 正在等待邮箱输入框: {self.account.email}")
             email_input_found = False
             for selector in email_input_selectors:
                 if self.wait_for_element(selector, timeout=30):
@@ -624,7 +733,7 @@ class BrowserWorker(threading.Thread):
             
             time.sleep(1)
             
-            print(f"[{self.worker_id}] 正在点击继续按钮: {self.account.email}")
+            logger.info(f"[{self.worker_id}] 正在点击继续按钮: {self.account.email}")
             continue_selectors = [
                 'xpath://button[@id="log-in-button"]',
                 'xpath://button[contains(@aria-label, "使用邮箱继续")]',
@@ -648,11 +757,11 @@ class BrowserWorker(threading.Thread):
                 self.account.email_config.get('admin_password', '')
             )
 
-            print(f"[{self.worker_id}] 正在获取邮箱验证码: {self.account.email}")
-            verification_code = email_manager.check_verification_code(self.account.email)
+            logger.info(f"[{self.worker_id}] 正在获取邮箱验证码: {self.account.email}")
+            verification_code = self.get_verification_code_with_retry(email_manager)
             
             if not verification_code:
-                raise Exception("未收到验证码")
+                raise Exception("未收到验证码 (已重试)")
             
             self.account.verification_code = verification_code
             
@@ -661,7 +770,7 @@ class BrowserWorker(threading.Thread):
                 'xpath://input[contains(@aria-label, "验证码")]',
                 'input[name="pinInput"]',
             ]
-            print(f"[{self.worker_id}] 正在输入验证码: {self.account.email}")
+            logger.info(f"[{self.worker_id}] 正在输入验证码: {self.account.email}")
             input_success = False
             for selector in code_input_selectors:
                 if self.wait_and_input(selector, verification_code, timeout=10, description="验证码输入框"):
@@ -678,7 +787,49 @@ class BrowserWorker(threading.Thread):
             
             time.sleep(3)
 
-            print(f"[{self.worker_id}] 正在等待跳转: {self.account.email}")
+            # 检查验证码错误并重试
+            if self.page.ele('text:请输入验证码。', timeout=2):
+                logger.warning(f"[{self.worker_id}] 验证码失效，尝试重新发送...")
+                
+                resend_selectors = [
+                    'button[aria-label="重新发送验证码"]',
+                    'xpath://button[contains(., "重新发送验证码")]'
+                ]
+                
+                resend_clicked = False
+                for sel in resend_selectors:
+                    if self.wait_and_click(sel, timeout=5):
+                        resend_clicked = True
+                        break
+                
+                if resend_clicked:
+                    logger.info(f"[{self.worker_id}] 已点击重新发送，等待新验证码...")
+                    time.sleep(10) # 等待邮件发送
+                    
+                    verification_code = email_manager.check_verification_code(self.account.email)
+                    if not verification_code:
+                         raise Exception("重发后未收到验证码")
+                    
+                    self.account.verification_code = verification_code
+                    logger.info(f"[{self.worker_id}] 获取到新验证码: {verification_code}")
+                    
+                    input_success = False
+                    for selector in code_input_selectors:
+                        if self.wait_and_input(selector, verification_code, timeout=10, description="验证码输入框"):
+                            input_success = True
+                            break
+                    
+                    if input_success:
+                        time.sleep(1)
+                        if not self.click_verify_button():
+                            raise Exception("无法点击验证按钮(重试)")
+                        time.sleep(3)
+                    else:
+                        raise Exception("无法重新输入验证码")
+                else:
+                    logger.warning(f"[{self.worker_id}] 未找到重新发送按钮")
+
+            logger.info(f"[{self.worker_id}] 正在等待跳转: {self.account.email}")
             
             target_pattern = r'business\.gemini\.google/home/cid/[a-f0-9-]+\?csesidx=\d+'
             if not self.wait_for_url_pattern(target_pattern, timeout=120):
@@ -692,14 +843,14 @@ class BrowserWorker(threading.Thread):
             if self.extract_data():
                 self.account.updated_at = datetime.now().isoformat()
                 self.update_status(AccountStatus.SUCCESS)
-                print(f"[{self.worker_id}] 刷新成功!")
+                logger.info(f"[{self.worker_id}] 刷新成功!")
                 return True
             else:
                 raise Exception("未能获取完整数据")
             
         except Exception as e:
             error_msg = str(e)
-            print(f"[{self.worker_id}] 刷新失败: {error_msg}")
+            logger.error(f"[{self.worker_id}] 刷新失败: {error_msg}")
             self.update_status(AccountStatus.FAILED, error_msg)
             return False
     
