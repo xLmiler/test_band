@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-配置管理
-"""
-
 import os
 import sys
 import glob
@@ -13,6 +7,18 @@ import shutil
 import platform
 import subprocess
 from typing import List, Dict, Optional
+import logging
+
+def setup_logging():
+    """配置日志"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+logger = logging.getLogger(__name__)
+
 
 class BrowserPathFinder:
     """跨平台浏览器路径查找器"""
@@ -441,29 +447,32 @@ class Config:
         env_path = os.getenv('BROWSER_PATH') or os.getenv('CHROME_PATH')
         if env_path and os.path.isfile(env_path):
             self._browser_path = env_path
-            print(f"[Config] 使用环境变量指定的浏览器: {env_path}")
+            logger.info(f"[Config] 使用环境变量指定的浏览器: {env_path}")
             return
         
         # 自动检测
-        print(f"[Config] 正在自动检测浏览器路径 (平台: {BrowserPathFinder.get_platform()})...")
+        # 自动检测
+        logger.info(f"[Config] 正在自动检测浏览器路径 (平台: {BrowserPathFinder.get_platform()})...")
         browser_info = BrowserPathFinder.get_browser_info()
         
         if browser_info['found']:
             self._browser_path = browser_info['path']
-            print(f"[Config] ✓ 检测到浏览器: {browser_info['path']}")
+        if browser_info['found']:
+            self._browser_path = browser_info['path']
+            logger.info(f"[Config] ✓ 检测到浏览器: {browser_info['path']}")
             if browser_info['version']:
-                print(f"[Config] ✓ 浏览器版本: {browser_info['version']}")
+                logger.info(f"[Config] ✓ 浏览器版本: {browser_info['version']}")
         else:
-            print("[Config] ✗ 警告: 未检测到可用的浏览器！")
-            print("[Config] 请确保已安装 Chrome/Chromium/Edge 或设置 BROWSER_PATH 环境变量")
-            print("[Config] 支持的浏览器: Chrome, Chromium, Edge, Brave, Vivaldi, Opera")
+            logger.warning("[Config] ✗ 警告: 未检测到可用的浏览器！")
+            logger.warning("[Config] 请确保已安装 Chrome/Chromium/Edge 或设置 BROWSER_PATH 环境变量")
+            logger.warning("[Config] 支持的浏览器: Chrome, Chromium, Edge, Brave, Vivaldi, Opera")
             
             # 列出所有检查过的路径（调试用）
             all_browsers = BrowserPathFinder.find_all_browsers()
             if all_browsers:
-                print(f"[Config] 找到以下浏览器但可能不兼容:")
+                logger.info(f"[Config] 找到以下浏览器但可能不兼容:")
                 for b in all_browsers:
-                    print(f"[Config]   - {b['name']}: {b['path']}")
+                    logger.info(f"[Config]   - {b['name']}: {b['path']}")
     
     def get_browser_path(self) -> Optional[str]:
         """获取浏览器路径"""
