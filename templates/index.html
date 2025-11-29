@@ -12,6 +12,7 @@
             --primary-dark: #4A8BC4;
             --bg-color: #F0F4F8;
             --card-bg: rgba(255, 255, 255, 0.85);
+            --accent-color: #E0E0E0;
             --text-color: #333;
             --text-muted: #666;
             --success-color: #4CAF50;
@@ -156,7 +157,7 @@
         }
 
         .btn-secondary {
-            background: #E0E0E0;
+            background: var(--accent-color);
             color: var(--text-color);
         }
 
@@ -241,7 +242,6 @@
             border-radius: 50%;
             border: 2px solid #E0E0E0;
             cursor: pointer;
-            background: var(--primary-color);
             transition: transform 0.3s;
         }
 
@@ -881,9 +881,20 @@
         <header class="header">
             <h1>📊 Gemini Business 账号管理系统</h1>
             <div class="header-actions">
-                <div class="color-picker-wrapper">
-                    <input type="color" class="color-picker-input" id="colorPicker" value="#5B9BD5">
-                    <div class="color-picker-btn" id="colorPickerBtn" title="自定义主题色"></div>
+                <div class="color-pickers-group" style="display: flex; gap: 8px;">
+                    <div class="color-picker-wrapper" title="主色调">
+                        <input type="color" class="color-picker-input" id="primaryColorPicker" value="#5B9BD5">
+                        <div class="color-picker-btn" id="primaryColorBtn" style="background: var(--primary-color)">
+                        </div>
+                    </div>
+                    <div class="color-picker-wrapper" title="背景色调">
+                        <input type="color" class="color-picker-input" id="bgColorPicker" value="#F0F4F8">
+                        <div class="color-picker-btn" id="bgColorBtn" style="background: var(--bg-color)"></div>
+                    </div>
+                    <div class="color-picker-wrapper" title="其他色调">
+                        <input type="color" class="color-picker-input" id="accentColorPicker" value="#E0E0E0">
+                        <div class="color-picker-btn" id="accentColorBtn" style="background: var(--accent-color)"></div>
+                    </div>
                 </div>
                 <button class="btn btn-secondary btn-small" onclick="logout()">退出</button>
             </div>
@@ -923,7 +934,9 @@
                     <div class="tab-panel active" id="accountsPanel">
                         <div class="toolbar">
                             <div class="search-box">
-                                <input type="text" id="searchInput" placeholder="搜索邮箱...">
+                                <input type="text" id="searchInput" placeholder="搜索邮箱..." autocomplete="chrome-off"
+                                    autocorrect="off" autocapitalize="off" spellcheck="false" name="search_email_filter"
+                                    readonly onfocus="this.removeAttribute('readonly');">
                             </div>
                             <select class="filter-select" id="statusFilter">
                                 <option value="">全部状态</option>
@@ -1159,13 +1172,9 @@
             document.getElementById('nextPage').addEventListener('click', () => changePage(1));
 
             // 颜色选择器
-            document.getElementById('colorPicker').addEventListener('input', (e) => {
-                updateThemeColor(e.target.value);
-            });
-
-            document.getElementById('colorPickerBtn').addEventListener('click', () => {
-                document.getElementById('colorPicker').click();
-            });
+            setupColorPicker('primaryColorPicker', 'primaryColorBtn', 'primary');
+            setupColorPicker('bgColorPicker', 'bgColorBtn', 'bg');
+            setupColorPicker('accentColorPicker', 'accentColorBtn', 'accent');
         }
 
         // 登录处理
@@ -1806,29 +1815,81 @@
             }
         }
 
+        // 设置颜色选择器
+        function setupColorPicker(inputId, btnId, type) {
+            const input = document.getElementById(inputId);
+            const btn = document.getElementById(btnId);
+
+            input.addEventListener('input', (e) => {
+                updateThemeColor(type, e.target.value);
+            });
+
+            btn.addEventListener('click', () => {
+                input.click();
+            });
+        }
+
         // 更新主题色
-        function updateThemeColor(color) {
-            document.documentElement.style.setProperty('--primary-color', color);
-
-            // 计算浅色和深色变体
-            const r = parseInt(color.slice(1, 3), 16);
-            const g = parseInt(color.slice(3, 5), 16);
-            const b = parseInt(color.slice(5, 7), 16);
-
-            document.documentElement.style.setProperty('--primary-light', `rgba(${r}, ${g}, ${b}, 0.1)`);
-            document.documentElement.style.setProperty('--primary-dark', `rgb(${Math.max(0, r - 20)}, ${Math.max(0, g - 20)}, ${Math.max(0, b - 20)})`);
-
-            document.getElementById('colorPickerBtn').style.background = color;
+        function updateThemeColor(type, color) {
+            if (type === 'primary') {
+                document.documentElement.style.setProperty('--primary-color', color);
+                // 计算浅色和深色变体
+                const r = parseInt(color.slice(1, 3), 16);
+                const g = parseInt(color.slice(3, 5), 16);
+                const b = parseInt(color.slice(5, 7), 16);
+                document.documentElement.style.setProperty('--primary-light', `rgba(${r}, ${g}, ${b}, 0.1)`);
+                document.documentElement.style.setProperty('--primary-dark', `rgb(${Math.max(0, r - 20)}, ${Math.max(0, g - 20)}, ${Math.max(0, b - 20)})`);
+                document.getElementById('primaryColorBtn').style.background = color;
+            } else if (type === 'bg') {
+                document.documentElement.style.setProperty('--bg-color', color);
+                document.getElementById('bgColorBtn').style.background = color;
+            } else if (type === 'accent') {
+                document.documentElement.style.setProperty('--accent-color', color);
+                document.getElementById('accentColorBtn').style.background = color;
+            }
 
             // 保存到本地存储
-            localStorage.setItem('themeColor', color);
+            saveThemeColors();
+        }
+
+        // 保存颜色配置
+        function saveThemeColors() {
+            const colors = {
+                primary: document.documentElement.style.getPropertyValue('--primary-color').trim(),
+                bg: document.documentElement.style.getPropertyValue('--bg-color').trim(),
+                accent: document.documentElement.style.getPropertyValue('--accent-color').trim()
+            };
+            localStorage.setItem('themeColors', JSON.stringify(colors));
         }
 
         // 加载保存的主题色
-        const savedColor = localStorage.getItem('themeColor');
-        if (savedColor) {
-            updateThemeColor(savedColor);
-            document.getElementById('colorPicker').value = savedColor;
+        const savedColors = localStorage.getItem('themeColors');
+        if (savedColors) {
+            try {
+                const colors = JSON.parse(savedColors);
+                if (colors.primary) {
+                    updateThemeColor('primary', colors.primary);
+                    document.getElementById('primaryColorPicker').value = colors.primary;
+                }
+                if (colors.bg) {
+                    updateThemeColor('bg', colors.bg);
+                    document.getElementById('bgColorPicker').value = colors.bg;
+                }
+                if (colors.accent) {
+                    updateThemeColor('accent', colors.accent);
+                    document.getElementById('accentColorPicker').value = colors.accent;
+                }
+            } catch (e) {
+                console.error('Failed to load theme colors', e);
+            }
+        } else {
+            // 兼容旧版
+            const oldColor = localStorage.getItem('themeColor');
+            if (oldColor) {
+                updateThemeColor('primary', oldColor);
+                document.getElementById('primaryColorPicker').value = oldColor;
+                localStorage.removeItem('themeColor'); // 迁移后删除
+            }
         }
 
         // 模态框操作
