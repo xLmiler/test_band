@@ -3,8 +3,13 @@ import time
 import random
 import string
 from typing import Optional, Tuple
+from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
 
 import requests
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class EmailManager:
@@ -48,17 +53,17 @@ class EmailManager:
             else:
                 return None, None
         except Exception as e:
-            print(f"创建邮箱出错: {e}")
+            logger.error(f"创建邮箱出错: {e}")
             return None, None
     
-    def check_verification_code(self, email: str, max_retries: int = 30, interval: float = 3.0) -> Optional[str]:
+    def check_verification_code(self, email: str, max_retries: int = 15, interval: float = 3.0) -> Optional[str]:
         """检查验证码邮件"""
         for attempt in range(max_retries):
             try:
                 api_url = f"https://{self.worker_domain}/admin/mails"
                 res = requests.get(
                     api_url,
-                    params={"limit": 10, "offset": 0, "address": email},
+                    params={"limit": 5, "offset": 0, "address": email},
                     headers={
                         "x-admin-auth": self.admin_password,
                         "Content-Type": "application/json"
@@ -70,7 +75,26 @@ class EmailManager:
                     data = res.json()
                     
                     if data.get('results') and len(data['results']) > 0:
-                        raw_content = data['results'][0].get('raw', '')
+                        email_data = data['results'][0]
+                        raw_content = email_data.get('raw', '')
+                        
+                        # 检查邮件时间
+                        try:
+                            # 提取 Received 头中的时间
+                            received_match = re.search(r'Received:.*?;\s*(.*?)\r\n', raw_content, re.DOTALL)
+                            if received_match:
+                                date_str = received_match.group(1).strip()
+                                email_time = parsedate_to_datetime(date_str)
+                                current_time = datetime.now(timezone.utc)
+                                
+                                # 如果邮件时间与当前时间相差超过1分钟，则认为是旧邮件
+                                if (current_time - email_time) > timedelta(minutes=1):
+                                    logger.warning(f"忽略过期邮件 (时间: {email_time}, 当前: {current_time})")
+                                    time.sleep(interval)
+                                    continue
+                        except Exception as e:
+                            logger.warning(f"解析邮件时间失败: {e}")
+
                         cleaned_content = raw_content.replace('=\r\n', '').replace('=\n', '').replace('=3D', '=')
                         
                         patterns = [
@@ -85,12 +109,13 @@ class EmailManager:
                             if match:
                                 code = match.group(1).upper()
                                 if len(code) == 6 and code.isalnum():
-                                    print(f"找到验证码: {code}")
+                                    logger.info(f"找到验证码: {code}")
                                     return code
                 
                 time.sleep(interval)
                 
-            except:
+            except Exception as e:
+                logger.error(f"检查验证码出错: {e}")
                 time.sleep(interval)
         
         return None
