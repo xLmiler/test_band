@@ -14,7 +14,12 @@ from dotenv import load_dotenv
 
 from browser_worker import BrowserWorker, AccountInfo, AccountStatus
 from email_manager import EmailManager
-from config import Config
+from config import Config, setup_logging
+import logging
+
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+logger = logging.getLogger(__name__)
 
 # 加载环境变量
 load_dotenv()
@@ -28,6 +33,7 @@ else:
 app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
 
 # 全局配置和状态
+setup_logging()
 config = Config()
 accounts: Dict[str, AccountInfo] = {}  # email -> AccountInfo
 workers: Dict[int, BrowserWorker] = {}  # worker_id -> BrowserWorker
@@ -65,7 +71,6 @@ def requires_auth(f):
                 request.headers.get("X-API-Key")
             )
             adminpassword = os.getenv('ADMIN_PASSWORD', '')
-            print(f"api_key: {api_key}, adminpassword: {adminpassword}")
 
             if api_key != os.getenv('ADMIN_TOKEN', '') and api_key != os.getenv('ADMIN_PASSWORD', ''):
                 return authenticate()
@@ -228,13 +233,21 @@ def create_account():
     with accounts_lock:
         accounts[email] = account
     
-    start_worker(worker_id, account, mode="register")
+    worker = start_worker(worker_id, account, mode="register")
+    worker.join()  # 等待任务完成
     
-    return jsonify({
-        'success': True,
-        'email': email,
-        'message': '账号创建已开始'
-    })
+    if account.status == AccountStatus.SUCCESS:
+        return jsonify({
+            'success': True,
+            'account': account.to_dict(),
+            'message': '账号创建成功'
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'error': account.error_message or '创建失败',
+            'details': account.to_dict()
+        }), 500
 
 
 @app.route('/api/accounts', methods=['GET'])
@@ -683,6 +696,61 @@ def get_status():
     })
 
 
+@app.route('/api/screenshot', methods=['GET'])
+@requires_auth
+def get_screenshot():
+    """获取浏览器截图"""
+    email = request.args.get('email')
+    
+    if email:
+        # 获取特定账号的截图
+        target_worker = None
+        with workers_lock:
+            for worker in workers.values():
+                if worker.account.email == email:
+                    target_worker = worker
+                    break
+        
+        if not target_worker:
+            return jsonify({
+                'success': False,
+                'error': '未找到该账号的运行实例'
+            }), 404
+            
+        screenshot = target_worker.get_screenshot()
+        if screenshot:
+            return jsonify({
+                'success': True,
+                'email': email,
+                'image': f'![screenshot](data:image/png;base64,{screenshot})'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '截图失败'
+            }), 500
+            
+    else:
+        # 获取所有活跃实例的截图
+        results = []
+        with workers_lock:
+            active_workers = list(workers.values())
+            
+        for worker in active_workers:
+            if worker.is_alive():
+                screenshot = worker.get_screenshot()
+                if screenshot:
+                    results.append({
+                        'email': worker.account.email,
+                        'image': f'![screenshot](data:image/png;base64,{screenshot})'
+                    })
+        
+        return jsonify({
+            'success': True,
+            'screenshots': results
+        })
+
+
 # 后台任务处理器
 def background_task_processor():
     """后台任务处理器"""
@@ -704,7 +772,7 @@ def background_task_processor():
         except queue.Empty:
             continue
         except Exception as e:
-            print(f"后台任务处理器错误: {e}")
+            logger.error(f"后台任务处理器错误: {e}")
 
 
 # 启动后台任务处理器
@@ -715,4 +783,5 @@ task_processor_thread.start()
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     debug = os.getenv('DEBUG', 'false').lower() == 'true'
+    logger.info(f"启动 Flask 应用, http://127.0.0.1:{port}")
     app.run(host='0.0.0.0', port=port, debug=debug, threaded=True)
