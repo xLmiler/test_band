@@ -954,6 +954,10 @@
                             <button class="btn btn-danger btn-small" onclick="stopAll()">
                                 ⏹ 停止全部
                             </button>
+                            <button class="btn btn-danger btn-small" onclick="forceStopRefresh()"
+                                style="background: #9C27B0;">
+                                ⛔ 强制停止刷新
+                            </button>
                             <button class="btn btn-success btn-small" onclick="exportAccounts()">
                                 📥 导出数据
                             </button>
@@ -1603,6 +1607,28 @@
 
             try {
                 const response = await apiRequest('/api/accounts/stop-all', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadAccounts();
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (error) {
+                showToast('网络错误', 'error');
+            }
+        }
+
+        // 强制停止所有刷新
+        async function forceStopRefresh() {
+            if (!confirm('确定要强制停止所有刷新任务吗？\n这将立刻清空刷新队列，并将所有刷新任务标记为禁用。')) return;
+
+            try {
+                const response = await apiRequest('/api/accounts/force-stop-refresh', {
                     method: 'POST'
                 });
 
