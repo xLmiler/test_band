@@ -517,61 +517,6 @@ def stop_all():
     })
 
 
-@app.route('/api/accounts/force-stop-refresh', methods=['POST'])
-@requires_auth
-def force_stop_refresh():
-    """强制停止所有刷新操作，清空队列并标记为禁用"""
-    stopped_count = 0
-    disabled_count = 0
-    
-    # 停止所有正在刷新的worker
-    with workers_lock:
-        for worker_id, worker in list(workers.items()):
-            # 只停止处于更新状态的任务
-            if worker.account.status == AccountStatus.UPDATING:
-                worker.stop()
-                email = worker.account.email
-                
-                with accounts_lock:
-                    if email in accounts:
-                        accounts[email].status = AccountStatus.FAILED
-                        accounts[email].error_message = "刷新已被强制停止并禁用"
-                
-                stopped_count += 1
-    
-    # 清空队列中所有刷新任务
-    temp_queue = queue.Queue()
-    while not task_queue.empty():
-        try:
-            task = task_queue.get_nowait()
-            mode, account = task
-            
-            # 如果是刷新任务，标记为禁用，不再重新加入队列
-            if mode == 'refresh':
-                with accounts_lock:
-                    if account.email in accounts:
-                        accounts[account.email].status = AccountStatus.FAILED
-                        accounts[account.email].error_message = "刷新队列已清空，任务禁用"
-                disabled_count += 1
-            else:
-                # 非刷新任务重新加入队列
-                temp_queue.put(task)
-        except queue.Empty:
-            break
-    
-    # 将非刷新任务放回队列
-    while not temp_queue.empty():
-        try:
-            task_queue.put(temp_queue.get_nowait())
-        except:
-            break
-    
-    return jsonify({
-        'success': True,
-        'message': f'已强制停止 {stopped_count} 个刷新任务，清空队列中 {disabled_count} 个刷新任务'
-    })
-
-
 @app.route('/api/accounts/export', methods=['GET'])
 @requires_auth
 def export_accounts():
